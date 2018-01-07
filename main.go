@@ -18,6 +18,26 @@ func must(err error, msg string) {
 	}
 }
 
+func deleteMessage(tries int, sleep time.Duration, f func() error) error {
+	var err error
+	for i := 0; ; i++ {
+		err = f()
+		if err == nil {
+			return nil
+		}
+
+		if i >= tries-1 {
+			break
+		}
+
+		time.Sleep(sleep)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
 	var token = flag.String("token", "", "https://api.slack.com/custom-integrations/legacy-tokens")
 	var channelName = flag.String("name", "", "channel name")
@@ -47,8 +67,16 @@ func main() {
 	must(err, "channel history")
 
 	for _, message := range history.Messages {
-		_, _, err := api.DeleteMessage(purgeID, message.Timestamp)
-		must(err, message.Timestamp)
+		err := deleteMessage(3, 2*time.Second, func() (err error) {
+			for _, reply := range message.Replies {
+				_ = deleteMessage(3, 2*time.Second, func() (err error) {
+					_, _, err = api.DeleteMessage(purgeID, reply.Timestamp)
+					return
+				})
+			}
+			_, _, err = api.DeleteMessage(purgeID, message.Timestamp)
+			return
+		})
+		log.Print(err)
 	}
-	log.Printf("Deleted %d messages", len(history.Messages))
 }
